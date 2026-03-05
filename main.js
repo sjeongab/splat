@@ -366,18 +366,32 @@ function createWorker(self) {
             texdata_f[8 * i + 1] = f_buffer[8 * i + 1];
             texdata_f[8 * i + 2] = f_buffer[8 * i + 2];
 
-            // r, g, b, a
-            texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 0];
-            texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 1];
-            texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 2];
-            texdata_c[4 * (8 * i + 7) + 3] = u_buffer[32 * i + 24 + 3];
+            const sx = f_buffer[8 * i + 3 + 0];
+            const sy = f_buffer[8 * i + 3 + 1];
+            const sz = f_buffer[8 * i + 3 + 2];
 
-            // quaternions
-            let scale = [
-                f_buffer[8 * i + 3 + 0],
-                f_buffer[8 * i + 3 + 1],
-                f_buffer[8 * i + 3 + 2],
-            ];
+            // 2. Find the maximum length
+            const maxScale = Math.max(sx, sy, sz);
+
+            // 3. Define your threshold (Adjust this number!)
+            // If a splat is longer than 5.0 units, it turns RED.
+            const SCALE_THRESHOLD = 1.0; 
+
+            if (maxScale >= SCALE_THRESHOLD) {
+                // FORCE RED COLOR
+                texdata_c[4 * (8 * i + 7) + 0] = 255; // R
+                texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 1];   // G
+                texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 2];   // B
+                texdata_c[4 * (8 * i + 7) + 3] = 255; // Alpha (Full Opacity)
+            } else {
+                // NORMAL COLOR (Original Code)
+                texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 0];
+                texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 1];
+                texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 2];
+                texdata_c[4 * (8 * i + 7) + 3] = u_buffer[32 * i + 24 + 3];
+            }
+
+            let scale = [sx, sy, sz];
             let rot = [
                 (u_buffer[32 * i + 28 + 0] - 128) / 128,
                 (u_buffer[32 * i + 28 + 1] - 128) / 128,
@@ -609,7 +623,9 @@ function createWorker(self) {
                 rgba[2] = attrs.blue;
             }
             if (types["opacity"]) {
-                rgba[3] = (1 / (1 + Math.exp(-attrs.opacity))) * 255;
+                console.log("hi");
+                rgba[3] = (1 / (1 + Math.exp(-attrs.opacity))) * 255;;
+
             } else {
                 rgba[3] = 255;
             }
@@ -744,11 +760,10 @@ async function main() {
         carousel = false;
     } catch (err) {}
     const url = new URL(
-        // "nike.splat",
-        // location.href,
-        params.get("url") || "train.splat",
-        "https://huggingface.co/cakewalk/splat-data/resolve/main/",
+    "model.splat", 
+    window.location.href 
     );
+
     const req = await fetch(url, {
         mode: "cors", // no-cors, *cors, same-origin
         credentials: "omit", // include, *same-origin, omit
