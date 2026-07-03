@@ -1532,15 +1532,25 @@ async function main() {
                 // [MODE 0]: VANILLA
                 // Your Web Worker is already updating the index buffer dynamically.
                 // Make sure your worker index buffer is bound here!
-                // gl.bindBuffer(gl.ARRAY_BUFFER, workerIndexBuffer);
+                //gl.bindBuffer(gl.ARRAY_BUFFER, workerIndexBuffer);
             } 
             else {
                 // [MODES 1, 2, 3]: PRESORT
                 // Determine the camera's forward direction (camera center is derived from your view matrix)
                 // Note: adjust how you extract camera position based on your specific math library
-                const dirX = -camera.position.x; 
-                const dirY = -camera.position.y;
-                const dirZ = -camera.position.z;
+                const R00 = actualViewMatrix[0], R10 = actualViewMatrix[1], R20 = actualViewMatrix[2];
+                const R01 = actualViewMatrix[4], R11 = actualViewMatrix[5], R21 = actualViewMatrix[6];
+                const R02 = actualViewMatrix[8], R12 = actualViewMatrix[9], R22 = actualViewMatrix[10];
+                const tx = actualViewMatrix[12], ty = actualViewMatrix[13], tz = actualViewMatrix[14];
+                
+                const camX = -(R00 * tx + R10 * ty + R20 * tz);
+                const camY = -(R01 * tx + R11 * ty + R21 * tz);
+                const camZ = -(R02 * tx + R12 * ty + R22 * tz);
+                
+                // Vector pointing from camera to origin (0,0,0)
+                const dirX = -camX; 
+                const dirY = -camY;
+                const dirZ = -camZ;
                 
                 const absX = Math.abs(dirX);
                 const absY = Math.abs(dirY);
@@ -1561,8 +1571,10 @@ async function main() {
                     needsFlip = dirZ < 0;
                 }
                 
-                // Bind the static presorted buffer, overriding the worker's sort
-                // gl.bindBuffer(gl.ARRAY_BUFFER, activeBufferWebGL);
+                // Bind the static presorted buffer, overriding the worker's dynamic sort
+                if (activeBufferWebGL) {
+                    gl.bindBuffer(gl.ARRAY_BUFFER, activeBufferWebGL);
+                }
             }
 
             // 3. --- UNIFORM UPDATES ---
