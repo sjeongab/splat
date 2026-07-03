@@ -295,6 +295,83 @@ function translate4(a, x, y, z) {
     ];
 }
 
+
+let currentRenderMode = 0;
+let webgl_buffer_x, webgl_buffer_y, webgl_buffer_z;
+let presort_splat_count = 0;
+
+function createRenderModeUI() {
+    // Main wrapper positioned at top-right
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = "position: absolute; top: 15px; right: 15px; z-index: 1000; font-family: sans-serif; display: flex; flex-direction: column; align-items: flex-end;";
+
+    // Toggle button (Settings icon / Menu)
+    const toggleBtn = document.createElement('button');
+    toggleBtn.innerHTML = "⚙️ Controls";
+    toggleBtn.style.cssText = "background: rgba(17, 24, 39, 0.85); color: white; border: 1px solid #4b5563; border-radius: 6px; padding: 8px 16px; cursor: pointer; font-weight: bold; margin-bottom: 8px; backdrop-filter: blur(4px); transition: background 0.2s;";
+    toggleBtn.onmouseover = () => toggleBtn.style.background = "rgba(31, 41, 55, 0.95)";
+    toggleBtn.onmouseout = () => toggleBtn.style.background = "rgba(17, 24, 39, 0.85)";
+
+    // The collapsible panel container
+    const panel = document.createElement('div');
+    panel.style.cssText = "background: rgba(17, 24, 39, 0.85); color: white; border-radius: 8px; padding: 15px; width: 220px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #374151; backdrop-filter: blur(4px); max-height: 70vh; overflow-y: auto; display: block; transition: opacity 0.2s;";
+
+    // Title inside panel
+    const title = document.createElement('h4');
+    title.innerText = "Render Mode";
+    title.style.margin = "0 0 12px 0";
+    title.style.fontSize = "16px";
+    title.style.borderBottom = "1px solid #374151";
+    title.style.paddingBottom = "8px";
+    panel.appendChild(title);
+
+    // Toggle Logic (Hide/Show)
+    let isOpen = true;
+    toggleBtn.onclick = () => {
+        isOpen = !isOpen;
+        panel.style.display = isOpen ? "block" : "none";
+    };
+
+    // The Modes
+    const modes = [
+        { name: "0. Vanilla", value: 0 },
+        { name: "1. Presort", value: 1 },
+        { name: "2. Index (Depth Color)", value: 2 },
+        { name: "3. Alpha (Opacity)", value: 3 }
+    ];
+
+    // Create buttons inside the panel
+    const buttons = [];
+    modes.forEach((mode, index) => {
+        const btn = document.createElement('button');
+        btn.innerText = mode.name;
+        btn.style.cssText = "display: block; width: 100%; margin-bottom: 8px; padding: 10px; cursor: pointer; background: #3b82f6; color: white; border: none; border-radius: 4px; font-weight: 600; text-align: left; transition: background 0.2s, padding-left 0.2s;";
+        
+        // Active state styling logic
+        if (index === 0) btn.style.borderLeft = "4px solid #10b981"; // Highlight default
+        
+        btn.onmouseover = () => btn.style.background = "#2563eb";
+        btn.onmouseout = () => btn.style.background = "#3b82f6";
+        
+        btn.onclick = () => {
+            currentRenderMode = mode.value;
+            console.log("Switched to mode: ", currentRenderMode);
+            
+            // Remove highlight from all buttons, add to clicked button
+            buttons.forEach(b => b.style.borderLeft = "none");
+            btn.style.borderLeft = "4px solid #10b981"; 
+        };
+        
+        buttons.push(btn);
+        panel.appendChild(btn);
+    });
+
+    // Assemble and inject into the document
+    wrapper.appendChild(toggleBtn);
+    wrapper.appendChild(panel);
+    document.body.appendChild(wrapper);
+}
+
 function createWorker(self) {
     let buffer;
     let vertexCount = 0;
@@ -377,7 +454,12 @@ function createWorker(self) {
             // If a splat is longer than 5.0 units, it turns RED.
             const SCALE_THRESHOLD = 1.0; 
 
-            if (maxScale >= SCALE_THRESHOLD) {
+            texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 0]; // R
+            texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 1];   // G
+            texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 2];   // B
+            texdata_c[4 * (8 * i + 7) + 3] = u_buffer[32 * i + 24 + 3]; // Alpha (Full Opacity)
+
+            /*if (maxScale >= SCALE_THRESHOLD) {
                 // FORCE RED COLOR
                 texdata_c[4 * (8 * i + 7) + 0] = 255; // R
                 texdata_c[4 * (8 * i + 7) + 1] = 0;//u_buffer[32 * i + 24 + 1];   // G
@@ -389,7 +471,7 @@ function createWorker(self) {
                 texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 3];//u_buffer[32 * i + 24 + 1];
                 texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 3];//u_buffer[32 * i + 24 + 2];
                 texdata_c[4 * (8 * i + 7) + 3] = u_buffer[32 * i + 24 + 3];//u_buffer[32 * i + 24 + 3];
-            }
+            }*/
 
             let scale = [sx, sy, sz];
             let rot = [
@@ -678,6 +760,10 @@ uniform mat4 projection, view;
 uniform vec2 focal;
 uniform vec2 viewport;
 
+uniform int u_renderMode;      // 0: Vanilla, 1: Presort, 2: Index Color, 3: Alpha Visualizer
+uniform float u_totalSplats;   // The total number of splats (vertexCount)
+uniform bool u_reverseOrder;  
+
 in vec2 position;
 in int index;
 
@@ -717,7 +803,33 @@ void main () {
     vec2 majorAxis = min(sqrt(2.0 * lambda1), 1024.0) * diagonalVector;
     vec2 minorAxis = min(sqrt(2.0 * lambda2), 1024.0) * vec2(diagonalVector.y, -diagonalVector.x);
 
-    vColor = clamp(pos2d.z/pos2d.w+1.0, 0.0, 1.0) * vec4((cov.w) & 0xffu, (cov.w >> 8) & 0xffu, (cov.w >> 16) & 0xffu, (cov.w >> 24) & 0xffu) / 255.0;
+    // 1. Calculate original intended color (including the depth scale modifier)
+    vec4 defaultColor = clamp(pos2d.z/pos2d.w+1.0, 0.0, 1.0) * vec4((cov.w) & 0xffu, (cov.w >> 8) & 0xffu, (cov.w >> 16) & 0xffu, (cov.w >> 24) & 0xffu) / 255.0;
+    float baseAlpha = defaultColor.a;
+    
+    // 2. Setup visualization logic
+    vec3 outColor;
+    float rawIndex = float(gl_InstanceID);
+    float rank = u_reverseOrder ? (u_totalSplats - rawIndex) / u_totalSplats : rawIndex / u_totalSplats;
+    
+    // 3. Mode switching
+    if (u_renderMode == 0 || u_renderMode == 1) {
+        // Normal color
+        outColor = defaultColor.rgb; 
+    } 
+    else if (u_renderMode == 2) {
+        // Depth/Index Visualization
+        outColor = vec3(rank, 0.0, 1.0 - rank);
+    } 
+    else if (u_renderMode == 3) {
+        // Alpha Visualization
+        outColor = vec3(baseAlpha);
+    }
+
+    // 4. Set final varying color
+    vColor = vec4(outColor, baseAlpha);
+
+    // vColor = clamp(pos2d.z/pos2d.w+1.0, 0.0, 1.0) * vec4((cov.w) & 0xffu, (cov.w >> 8) & 0xffu, (cov.w >> 16) & 0xffu, (cov.w >> 24) & 0xffu) / 255.0;
     vPosition = position;
 
     vec2 vCenter = vec2(pos2d) / pos2d.w;
@@ -877,6 +989,42 @@ async function main() {
 
         gl.uniformMatrix4fv(u_projection, false, projectionMatrix);
     };
+
+    async function loadPrecomputedBuffers(url) {
+        console.log("Downloading pre-sort buffers...");
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        
+        // Read the header (First 4 bytes is 'P', the total Gaussian count)
+        const headerView = new Uint32Array(arrayBuffer, 0, 1);
+        presort_splat_count = headerView[0];
+        
+        // Create views into the binary data for X, Y, and Z
+        const bytesPerElement = 4;
+        const idx_x = new Uint32Array(arrayBuffer, 4, presort_splat_count);
+        const idx_y = new Uint32Array(arrayBuffer, 4 + (presort_splat_count * bytesPerElement), presort_splat_count);
+        const idx_z = new Uint32Array(arrayBuffer, 4 + (presort_splat_count * bytesPerElement * 2), presort_splat_count);
+        
+        // Upload X Buffer to GPU
+        webgl_buffer_x = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, webgl_buffer_x);
+        gl.bufferData(gl.ARRAY_BUFFER, idx_x, gl.STATIC_DRAW);
+
+        // Upload Y Buffer to GPU
+        webgl_buffer_y = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, webgl_buffer_y);
+        gl.bufferData(gl.ARRAY_BUFFER, idx_y, gl.STATIC_DRAW);
+
+        // Upload Z Buffer to GPU
+        webgl_buffer_z = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, webgl_buffer_z);
+        gl.bufferData(gl.ARRAY_BUFFER, idx_z, gl.STATIC_DRAW);
+
+        console.log("Precomputed buffers successfully loaded into WebGL memory!");
+    }
+
+    loadPrecomputedBuffers('presort_indices.bin');
+    createRenderModeUI();
 
     window.addEventListener("resize", resize);
     resize();
@@ -1372,14 +1520,72 @@ async function main() {
 
         if (vertexCount > 0) {
             document.getElementById("spinner").style.display = "none";
+            
+            // 1. Existing setup
             gl.uniformMatrix4fv(u_view, false, actualViewMatrix);
             gl.clear(gl.COLOR_BUFFER_BIT);
+
+            // 2. --- NEW BUFFER SELECTION LOGIC ---
+            let needsFlip = false; 
+
+            if (currentRenderMode === 0) {
+                // [MODE 0]: VANILLA
+                // Your Web Worker is already updating the index buffer dynamically.
+                // Make sure your worker index buffer is bound here!
+                // gl.bindBuffer(gl.ARRAY_BUFFER, workerIndexBuffer);
+            } 
+            else {
+                // [MODES 1, 2, 3]: PRESORT
+                // Determine the camera's forward direction (camera center is derived from your view matrix)
+                // Note: adjust how you extract camera position based on your specific math library
+                const dirX = -camera.position.x; 
+                const dirY = -camera.position.y;
+                const dirZ = -camera.position.z;
+                
+                const absX = Math.abs(dirX);
+                const absY = Math.abs(dirY);
+                const absZ = Math.abs(dirZ);
+                const maxDot = Math.max(absX, absY, absZ);
+                
+                let activeBufferWebGL; 
+                
+                // Select the correct pre-sorted buffer and check for negative side
+                if (maxDot === absX) {
+                    activeBufferWebGL = webgl_buffer_x;
+                    needsFlip = dirX < 0; 
+                } else if (maxDot === absY) {
+                    activeBufferWebGL = webgl_buffer_y;
+                    needsFlip = dirY < 0;
+                } else {
+                    activeBufferWebGL = webgl_buffer_z;
+                    needsFlip = dirZ < 0;
+                }
+                
+                // Bind the static presorted buffer, overriding the worker's sort
+                // gl.bindBuffer(gl.ARRAY_BUFFER, activeBufferWebGL);
+            }
+
+            // 3. --- UNIFORM UPDATES ---
+            // (Note: caching getUniformLocation outside the loop is better for performance)
+            const modeLoc = gl.getUniformLocation(program, "u_renderMode");
+            const splatsLoc = gl.getUniformLocation(program, "u_totalSplats");
+            const flipLoc = gl.getUniformLocation(program, "u_reverseOrder");
+
+            gl.uniform1i(modeLoc, currentRenderMode);
+            gl.uniform1f(splatsLoc, vertexCount); // Use vertexCount instead of 'P'
+            gl.uniform1i(flipLoc, needsFlip ? 1 : 0); 
+
+            // 4. Your existing draw call
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
+            
         } else {
+            // Your existing loading logic
             gl.clear(gl.COLOR_BUFFER_BIT);
             document.getElementById("spinner").style.display = "";
             start = Date.now() + 2000;
         }
+
+        // Your existing UI updates
         const progress = (100 * vertexCount) / (splatData.length / rowLength);
         if (progress < 100) {
             document.getElementById("progress").style.width = progress + "%";
@@ -1462,6 +1668,10 @@ async function main() {
     let bytesRead = 0;
     let lastVertexCount = -1;
     let stopLoading = false;
+
+    let needsFlip = false; // Tracks if we are looking from the back
+
+    
 
     while (true) {
         const { done, value } = await reader.read();
