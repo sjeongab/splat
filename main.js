@@ -380,15 +380,15 @@ function createWorker(self) {
             if (maxScale >= SCALE_THRESHOLD) {
                 // FORCE RED COLOR
                 texdata_c[4 * (8 * i + 7) + 0] = 255; // R
-                texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 1];   // G
-                texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 2];   // B
-                texdata_c[4 * (8 * i + 7) + 3] = 255; // Alpha (Full Opacity)
+                texdata_c[4 * (8 * i + 7) + 1] = 0;//u_buffer[32 * i + 24 + 1];   // G
+                texdata_c[4 * (8 * i + 7) + 2] = 0;//u_buffer[32 * i + 24 + 2];   // B
+                texdata_c[4 * (8 * i + 7) + 3] = 0; // Alpha (Full Opacity)
             } else {
                 // NORMAL COLOR (Original Code)
-                texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 0];
-                texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 1];
-                texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 2];
-                texdata_c[4 * (8 * i + 7) + 3] = u_buffer[32 * i + 24 + 3];
+                texdata_c[4 * (8 * i + 7) + 0] = u_buffer[32 * i + 24 + 3];//u_buffer[32 * i + 24 + 0];
+                texdata_c[4 * (8 * i + 7) + 1] = u_buffer[32 * i + 24 + 3];//u_buffer[32 * i + 24 + 1];
+                texdata_c[4 * (8 * i + 7) + 2] = u_buffer[32 * i + 24 + 3];//u_buffer[32 * i + 24 + 2];
+                texdata_c[4 * (8 * i + 7) + 3] = u_buffer[32 * i + 24 + 3];//u_buffer[32 * i + 24 + 3];
             }
 
             let scale = [sx, sy, sz];
