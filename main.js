@@ -762,7 +762,7 @@ uniform vec2 viewport;
 
 uniform int u_renderMode;      // 0: Vanilla, 1: Presort, 2: Index Color, 3: Alpha Visualizer
 uniform float u_totalSplats;   // The total number of splats (vertexCount)
-uniform bool u_reverseOrder;  
+uniform int u_activeAxis;  
 
 in vec2 position;
 in int index;
@@ -809,8 +809,9 @@ void main () {
     
     // 2. Setup visualization logic
     vec3 outColor;
-    float rawIndex = float(gl_InstanceID);
-    float rank = u_reverseOrder ? (u_totalSplats - rawIndex) / u_totalSplats : rawIndex / u_totalSplats;
+    float rank = float(gl_InstanceID) / u_totalSplats;
+    //float rawIndex = float(gl_InstanceID);
+    //float rank = rawIndex / u_totalSplats; //u_reverseOrder ? (u_totalSplats - rawIndex) / u_totalSplats : rawIndex / u_totalSplats;
     
     // 3. Mode switching
     if (u_renderMode == 0 || u_renderMode == 1) {
@@ -818,8 +819,7 @@ void main () {
         outColor = defaultColor.rgb; 
     } 
     else if (u_renderMode == 2) {
-        // Depth/Index Visualization
-        outColor = vec3(rank, 0.0, 1.0 - rank);
+        outColor = vec3(rank, u_activeAxis/2, 1.0 - rank);
     } 
     else if (u_renderMode == 3) {
         // Alpha Visualization
@@ -995,35 +995,42 @@ async function main() {
         const response = await fetch(url);
         const arrayBuffer = await response.arrayBuffer();
         
-        // Read the header (First 4 bytes is 'P', the total Gaussian count)
         const headerView = new Uint32Array(arrayBuffer, 0, 1);
         presort_splat_count = headerView[0];
-        
-        // Create views into the binary data for X, Y, and Z
         const bytesPerElement = 4;
-        const idx_x = new Uint32Array(arrayBuffer, 4, presort_splat_count);
-        const idx_y = new Uint32Array(arrayBuffer, 4 + (presort_splat_count * bytesPerElement), presort_splat_count);
-        const idx_z = new Uint32Array(arrayBuffer, 4 + (presort_splat_count * bytesPerElement * 2), presort_splat_count);
         
-        // Upload X Buffer to GPU
-        webgl_buffer_x = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, webgl_buffer_x);
-        gl.bufferData(gl.ARRAY_BUFFER, idx_x, gl.STATIC_DRAW);
+        // Read original arrays (Int32 matches shader 'in int index')
+        const idx_pos_x = new Int32Array(arrayBuffer, 4, presort_splat_count);
+        const idx_pos_y = new Int32Array(arrayBuffer, 4 + (presort_splat_count * bytesPerElement), presort_splat_count);
+        const idx_pos_z = new Int32Array(arrayBuffer, 4 + (presort_splat_count * bytesPerElement * 2), presort_splat_count);
 
-        // Upload Y Buffer to GPU
-        webgl_buffer_y = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, webgl_buffer_y);
-        gl.bufferData(gl.ARRAY_BUFFER, idx_y, gl.STATIC_DRAW);
+        // Create perfectly reversed copies for the negative hemispheres
+        const idx_neg_x = new Int32Array(idx_pos_x).reverse();
+        const idx_neg_y = new Int32Array(idx_pos_y).reverse();
+        const idx_neg_z = new Int32Array(idx_pos_z).reverse();
+        
+        const uploadBuffer = (data) => {
+            const b = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, b);
+            gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+            return b;
+        };
 
-        // Upload Z Buffer to GPU
-        webgl_buffer_z = gl.createBuffer();
-        gl.bindBuffer(gl.ARRAY_BUFFER, webgl_buffer_z);
-        gl.bufferData(gl.ARRAY_BUFFER, idx_z, gl.STATIC_DRAW);
+        webgl_buffer_pos_x = uploadBuffer(idx_pos_x);
+        webgl_buffer_neg_x = uploadBuffer(idx_neg_x);
+        webgl_buffer_pos_y = uploadBuffer(idx_pos_y);
+        webgl_buffer_neg_y = uploadBuffer(idx_neg_y);
+        webgl_buffer_pos_z = uploadBuffer(idx_pos_z);
+        webgl_buffer_neg_z = uploadBuffer(idx_neg_z);
 
         console.log("Precomputed buffers successfully loaded into WebGL memory!");
     }
 
-    loadPrecomputedBuffers('presort_indices.bin');
+    loadPrecomputedBuffers('presort_indices.bin').then(() => {
+        console.log("Ready to switch to Presort modes.");
+    }).catch(err => {
+        console.error("Failed to load pre-sorted buffers:", err);
+    });
     createRenderModeUI();
 
     window.addEventListener("resize", resize);
@@ -1342,6 +1349,8 @@ async function main() {
 
     let leftGamepadTrigger, rightGamepadTrigger;
 
+    let vanillaBuffer = null;
+
     const frame = (now) => {
         let inv = invert4(viewMatrix);
         let shiftKey =
@@ -1513,7 +1522,9 @@ async function main() {
         let actualViewMatrix = invert4(inv2);
 
         const viewProj = multiply4(projectionMatrix, actualViewMatrix);
-        worker.postMessage({ view: viewProj });
+        if (currentRenderMode == 0) {
+            worker.postMessage({ view: viewProj });
+        }
 
         const currentFps = 1000 / (now - lastFrame) || 0;
         avgFps = avgFps * 0.9 + currentFps * 0.1;
@@ -1526,13 +1537,24 @@ async function main() {
             gl.clear(gl.COLOR_BUFFER_BIT);
 
             // 2. --- NEW BUFFER SELECTION LOGIC ---
-            let needsFlip = false; 
+            const indexLoc = gl.getAttribLocation(program, "index");
+
+            if (!vanillaBuffer && currentRenderMode === 0) {
+                vanillaBuffer = gl.getVertexAttrib(indexLoc, gl.VERTEX_ATTRIB_ARRAY_BUFFER_BINDING);
+            }
+
+            let activeAxis = 0;
 
             if (currentRenderMode === 0) {
                 // [MODE 0]: VANILLA
                 // Your Web Worker is already updating the index buffer dynamically.
                 // Make sure your worker index buffer is bound here!
                 //gl.bindBuffer(gl.ARRAY_BUFFER, workerIndexBuffer);
+                if (vanillaBuffer) {
+                    gl.bindBuffer(gl.ARRAY_BUFFER, vanillaBuffer);
+                    gl.vertexAttribIPointer(indexLoc, 1, gl.INT, 0, 0);
+                    gl.vertexAttribDivisor(indexLoc, 1);
+                }
             } 
             else {
                 // [MODES 1, 2, 3]: PRESORT
@@ -1561,19 +1583,24 @@ async function main() {
                 
                 // Select the correct pre-sorted buffer and check for negative side
                 if (maxDot === absX) {
-                    activeBufferWebGL = webgl_buffer_x;
-                    needsFlip = dirX < 0; 
+                    activeBufferWebGL = dirX > 0 ? webgl_buffer_neg_x : webgl_buffer_pos_x;
+                    console.log("X-axis", dirX > 0);
+                    activeAxis = 0;
                 } else if (maxDot === absY) {
-                    activeBufferWebGL = webgl_buffer_y;
-                    needsFlip = dirY < 0;
+                    activeBufferWebGL = dirY > 0 ? webgl_buffer_neg_y : webgl_buffer_pos_y;
+                    console.log("Y-axis", dirY > 0);
+                    activeAxis = 1;
                 } else {
-                    activeBufferWebGL = webgl_buffer_z;
-                    needsFlip = dirZ < 0;
+                    activeBufferWebGL = dirZ > 0 ? webgl_buffer_neg_z : webgl_buffer_pos_z;
+                    console.log("Z-axis", dirY > 0);
+                    activeAxis = 2;
                 }
                 
                 // Bind the static presorted buffer, overriding the worker's dynamic sort
                 if (activeBufferWebGL) {
                     gl.bindBuffer(gl.ARRAY_BUFFER, activeBufferWebGL);
+                    gl.vertexAttribIPointer(indexLoc, 1, gl.INT, 0, 0); 
+                    gl.vertexAttribDivisor(indexLoc, 1);
                 }
             }
 
@@ -1581,11 +1608,11 @@ async function main() {
             // (Note: caching getUniformLocation outside the loop is better for performance)
             const modeLoc = gl.getUniformLocation(program, "u_renderMode");
             const splatsLoc = gl.getUniformLocation(program, "u_totalSplats");
-            const flipLoc = gl.getUniformLocation(program, "u_reverseOrder");
+            const axisLoc = gl.getUniformLocation(program, "activeAxis");
 
             gl.uniform1i(modeLoc, currentRenderMode);
             gl.uniform1f(splatsLoc, vertexCount); // Use vertexCount instead of 'P'
-            gl.uniform1i(flipLoc, needsFlip ? 1 : 0); 
+            gl.uniform1i(axisLoc, activeAxis); 
 
             // 4. Your existing draw call
             gl.drawArraysInstanced(gl.TRIANGLE_FAN, 0, 4, vertexCount);
@@ -1684,7 +1711,7 @@ async function main() {
     let needsFlip = false; // Tracks if we are looking from the back
 
     
-
+    
     while (true) {
         const { done, value } = await reader.read();
         if (done || stopLoading) break;
