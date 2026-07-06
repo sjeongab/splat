@@ -297,7 +297,9 @@ function translate4(a, x, y, z) {
 
 
 let currentRenderMode = 0;
-let webgl_buffer_x, webgl_buffer_y, webgl_buffer_z;
+let webgl_buffer_pos_x, webgl_buffer_neg_x,
+    webgl_buffer_pos_y, webgl_buffer_neg_y,
+    webgl_buffer_pos_z, webgl_buffer_neg_z;
 let presort_splat_count = 0;
 
 function createRenderModeUI() {
@@ -810,8 +812,6 @@ void main () {
     // 2. Setup visualization logic
     vec3 outColor;
     float rank = float(gl_InstanceID) / u_totalSplats;
-    //float rawIndex = float(gl_InstanceID);
-    //float rank = rawIndex / u_totalSplats; //u_reverseOrder ? (u_totalSplats - rawIndex) / u_totalSplats : rawIndex / u_totalSplats;
     
     // 3. Mode switching
     if (u_renderMode == 0 || u_renderMode == 1) {
