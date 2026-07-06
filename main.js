@@ -819,7 +819,16 @@ void main () {
         outColor = defaultColor.rgb; 
     } 
     else if (u_renderMode == 2) {
-        outColor = vec3(rank, u_activeAxis/2, 1.0 - rank);
+        if(u_activeAxis == 0){
+            outColor = vec3(1.0 - rank, rank, 0.0);
+        }
+        else if(u_activeAxis == 1){
+            outColor = vec3(0.0, 1.0 - rank, rank);
+        }
+        else if(u_activeAxis == 2){
+            outColor = vec3(rank, 0.0, 1.0 - rank);
+        }
+        
     } 
     else if (u_renderMode == 3) {
         // Alpha Visualization
@@ -1608,7 +1617,7 @@ async function main() {
             // (Note: caching getUniformLocation outside the loop is better for performance)
             const modeLoc = gl.getUniformLocation(program, "u_renderMode");
             const splatsLoc = gl.getUniformLocation(program, "u_totalSplats");
-            const axisLoc = gl.getUniformLocation(program, "activeAxis");
+            const axisLoc = gl.getUniformLocation(program, "u_activeAxis");
 
             gl.uniform1i(modeLoc, currentRenderMode);
             gl.uniform1f(splatsLoc, vertexCount); // Use vertexCount instead of 'P'
